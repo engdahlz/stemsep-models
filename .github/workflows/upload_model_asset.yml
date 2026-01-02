@@ -1,49 +1,77 @@
-name: Upload Model Asset to Release
+name: Upload Deterministic Model Assets
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to upload to"
-        required: true
-        default: "models-v2-2026-01-01"
-      asset_name:
-        description: "Asset filename in the release"
-        required: true
-        default: "unwa-inst-v1e-plus.ckpt"
-      source_url:
-        description: "Upstream URL to download the asset from"
-        required: true
-        default: "https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/inst_v1e_plus.ckpt"
 
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: models-v2-2026-01-01
+            asset_name: unwa-inst-v1e-plus.ckpt
+            source_url: https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/inst_v1e_plus.ckpt
+          - tag: models-v2-2026-01-01
+            asset_name: amane-full-scratch.ckpt
+            source_url: https://huggingface.co/Aname-Tommy/Mel_Band_Roformer_Full_Scratch/resolve/main/model_vocals.ckpt
+          - tag: models-v2-2026-01-01
+            asset_name: amane-inst-fullness.ckpt
+            source_url: https://huggingface.co/GaboxR67/MelBandRoformers/resolve/main/melbandroformers/experimental/Fullness.ckpt
+          - tag: models-v2-2026-01-01
+            asset_name: amane-inst-fullness.yaml
+            source_url: https://huggingface.co/GaboxR67/MelBandRoformers/resolve/main/melbandroformers/instrumental/inst_gabox.yaml
+          - tag: models-v2-2026-01-01
+            asset_name: bs-roformer-4-stems.ckpt
+            source_url: https://huggingface.co/SYH99999/bs_roformer_4stems_ft/resolve/main/bs_roformer_4stems_ft.pth
+          - tag: models-v2-2026-01-01
+            asset_name: bs-roformer-4-stems.yaml
+            source_url: https://huggingface.co/SYH99999/bs_roformer_4stems_ft/resolve/main/config.yaml
+          - tag: models-v2-2026-01-01
+            asset_name: drypd-side-extraction.pth
+            source_url: https://huggingface.co/Politrees/UVR_resources/resolve/main/models/SCnet/model_scnet_ep_54_sdr_9.8051.ckpt
+          - tag: models-v2-2026-01-01
+            asset_name: neo-instvfx.ckpt
+            source_url: https://huggingface.co/natanworkspace/melband_roformer/resolve/main/Neo_InstVFX.ckpt
+          - tag: models-v2-2026-01-01
+            asset_name: neo-instvfx.yaml
+            source_url: https://huggingface.co/natanworkspace/melband_roformer/resolve/main/config_neo_inst.yaml
+
     steps:
       - name: Download asset
         shell: bash
         run: |
           set -euo pipefail
           curl -L --fail --retry 3 --retry-delay 2 \
-            -o "${{ inputs.asset_name }}" \
-            "${{ inputs.source_url }}"
+            -o "${{ matrix.asset_name }}" \
+            "${{ matrix.source_url }}"
 
-          size=$(stat -c%s "${{ inputs.asset_name }}")
+          size=$(stat -c%s "${{ matrix.asset_name }}")
           echo "Downloaded size: ${size} bytes"
-          if [ "$size" -lt 10000000 ]; then
-            echo "Downloaded file seems too small; aborting." >&2
-            exit 2
-          fi
+
+          case "${{ matrix.asset_name }}" in
+            *.yaml|*.yml|*.json)
+              # Config/metadata files can be small.
+              ;;
+            *)
+              # Model binaries should not be tiny.
+              if [ "$size" -lt 1000000 ]; then
+                echo "Downloaded file seems too small for a binary model; aborting." >&2
+                exit 2
+              fi
+              ;;
+          esac
 
       - name: Upload to GitHub Release (skip if exists)
         env:
           GH_TOKEN: ${{ secrets.STEMSEP_GH_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag }}
-          ASSET: ${{ inputs.asset_name }}
+          TAG: ${{ matrix.tag }}
+          ASSET: ${{ matrix.asset_name }}
         shell: bash
         run: |
           set -euo pipefail
