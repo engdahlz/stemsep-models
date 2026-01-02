@@ -1,0 +1,58 @@
+name: Upload Model Asset to Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload to"
+        required: true
+        default: "models-v2-2026-01-01"
+      asset_name:
+        description: "Asset filename in the release"
+        required: true
+        default: "unwa-inst-v1e-plus.ckpt"
+      source_url:
+        description: "Upstream URL to download the asset from"
+        required: true
+        default: "https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/inst_v1e_plus.ckpt"
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Download asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 --retry-delay 2 \
+            -o "${{ inputs.asset_name }}" \
+            "${{ inputs.source_url }}"
+
+          size=$(stat -c%s "${{ inputs.asset_name }}")
+          echo "Downloaded size: ${size} bytes"
+          if [ "$size" -lt 10000000 ]; then
+            echo "Downloaded file seems too small; aborting." >&2
+            exit 2
+          fi
+
+      - name: Upload to GitHub Release (skip if exists)
+        env:
+          GH_TOKEN: ${{ secrets.STEMSEP_GH_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          ASSET: ${{ inputs.asset_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' || true)
+          if echo "$existing" | grep -Fxq "$ASSET"; then
+            echo "Asset already exists on release: $ASSET"
+            exit 0
+          fi
+
+          gh release upload "$TAG" "$ASSET" --repo "$REPO"
+          echo "Upload done."
